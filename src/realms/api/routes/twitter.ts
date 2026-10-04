@@ -12,7 +12,11 @@ import {
   profileAboutAPI
 } from '@fxembed/atmosphere/providers/twitter/profile';
 import { attachAboutAccountData } from '@fxembed/atmosphere/providers/twitter/aboutAccount';
-import { searchAPI, searchUsersAPI } from '@fxembed/atmosphere/providers/twitter/search';
+import {
+  rssProfileSearchAPI,
+  rssProfileTimelineAPI,
+  rssSearchAPI
+} from '@fxembed/atmosphere/providers/twitter/rssSearch';
 import {
   profileArticlesAPI,
   profileFollowersAPI,
@@ -38,7 +42,7 @@ import {
   profileAboutV2Route,
   profileStatusesV2Route,
   profileV2Route,
-  searchUsersV2Route,
+  profileSearchV2Route,
   searchV2Route,
   statusV2Route,
   statusRepostsV2Route,
@@ -95,6 +99,15 @@ export const statusRepostsAPIRequest: RouteHandler<typeof statusRepostsV2Route> 
   return jsonAfterNormalize<typeof statusRepostsV2Route>(c, payload, httpStatus);
 };
 
+const shouldTryRelayFallback = (response: { code: number; results?: unknown }): boolean => {
+  if (response.code !== 200) {
+    return true;
+  }
+  // A 200 with zero usable rows is indistinguishable from upstream emptiness:
+  // give the relay one chance, but keep the primary when it also comes up empty.
+  return !Array.isArray(response.results) || response.results.length === 0;
+};
+
 export const statusQuotesAPIRequest: RouteHandler<typeof statusQuotesV2Route> = async c => {
   const host = twitterBuildHostFromContext(c);
   const { id } = c.req.valid('param');
@@ -104,8 +117,23 @@ export const statusQuotesAPIRequest: RouteHandler<typeof statusQuotesV2Route> = 
   const cursor = query.cursor ?? null;
 
   const response = await statusQuotesAPI(id, count, cursor, host, query.lang);
+  // Relay fallback: same SearchTimeline query the provider uses, served hydrated.
+  let finalResponse = response;
+  if (shouldTryRelayFallback(response)) {
+    const relay = await rssSearchAPI(
+      `quoted_tweet_id:${id}`,
+      'latest',
+      count,
+      cursor,
+      host,
+      query.lang
+    );
+    if (relay.code === 200) {
+      finalResponse = relay;
+    }
+  }
   const { httpStatus, payload } = normalizeApiJsonResponse(
-    response,
+    finalResponse,
     [200, 400, 404, 500] as const,
     'statusQuotesAPIRequest'
   );
@@ -236,12 +264,28 @@ export const profileStatusesAPIRequest = (async (c): Promise<TwitterProfileStatu
     groupThreads
   );
 
+  // Relay fallback (screen names only): profile RSS tabs, then from: time windows.
+  let timelineResponse = statusesResponse;
+  if (shouldTryRelayFallback(statusesResponse)) {
+    const relay = await rssProfileTimelineAPI(
+      handle,
+      withReplies ? 'replies' : 'statuses',
+      count,
+      cursor,
+      host,
+      query.lang
+    );
+    if (relay.code === 200) {
+      timelineResponse = relay;
+    }
+  }
+
   const applySinceNoContent =
-    sinceParam !== undefined && cursor === null && statusesResponse.code === 200;
+    sinceParam !== undefined && cursor === null && timelineResponse.code === 200;
 
   if (applySinceNoContent) {
     const sinceMs = unixTimestampParamToMs(sinceParam);
-    const hasNewerPost = statusesResponse.results.some(item => {
+    const hasNewerPost = timelineResponse.results.some(item => {
       if ('type' in item && item.type === 'thread') {
         return item.statuses.some(s => {
           const tMs = s.created_timestamp * 1000;
@@ -262,7 +306,7 @@ export const profileStatusesAPIRequest = (async (c): Promise<TwitterProfileStatu
   }
 
   const { httpStatus, payload } = normalizeApiJsonResponse(
-    statusesResponse,
+    timelineResponse,
     [200, 400, 404, 500] as const,
     'profileStatusesAPIRequest'
   );
@@ -317,8 +361,17 @@ export const profileMediaAPIRequest: RouteHandler<typeof profileMediaV2Route> = 
     query.lang
   );
 
+  // Relay fallback (screen names only): profile media RSS, then from: + filter:media windows.
+  let finalMediaResponse = mediaResponse;
+  if (shouldTryRelayFallback(mediaResponse)) {
+    const relay = await rssProfileTimelineAPI(handle, 'media', count, cursor, host, query.lang);
+    if (relay.code === 200) {
+      finalMediaResponse = relay;
+    }
+  }
+
   const { httpStatus, payload } = normalizeApiJsonResponse(
-    mediaResponse,
+    finalMediaResponse,
     [200, 400, 404, 500] as const,
     'profileMediaAPIRequest'
   );
@@ -380,7 +433,7 @@ export const searchAPIRequest: RouteHandler<typeof searchV2Route> = async c => {
   const count = query.count ?? 30;
   const cursor = query.cursor ?? null;
 
-  const searchResponse = await searchAPI(q, feed, count, cursor, host, query.lang);
+  const searchResponse = await rssSearchAPI(q, feed, count, cursor, host, query.lang);
   const { httpStatus, payload } = normalizeApiJsonResponse(
     searchResponse,
     [200, 400, 404, 500] as const,
@@ -393,12 +446,15 @@ export const searchAPIRequest: RouteHandler<typeof searchV2Route> = async c => {
   return jsonAfterNormalize<typeof searchV2Route>(c, payload, httpStatus);
 };
 
-export const searchUsersAPIRequest: RouteHandler<typeof searchUsersV2Route> = async c => {
+export const profileSearchAPIRequest: RouteHandler<typeof profileSearchV2Route> = async c => {
   const host = twitterBuildHostFromContext(c);
+  const { handle } = c.req.valid('param');
   const query = c.req.valid('query');
 
-  const searchResponse = await searchUsersAPI(
+  const searchResponse = await rssProfileSearchAPI(
+    handle,
     query.q,
+    query.feed ?? 'latest',
     query.count ?? 30,
     query.cursor ?? null,
     host,
@@ -407,13 +463,13 @@ export const searchUsersAPIRequest: RouteHandler<typeof searchUsersV2Route> = as
   const { httpStatus, payload } = normalizeApiJsonResponse(
     searchResponse,
     [200, 400, 404, 500] as const,
-    'searchUsersAPIRequest'
+    'profileSearchAPIRequest'
   );
   c.status(httpStatus);
   for (const [header, value] of Object.entries(Constants.API_RESPONSE_HEADERS)) {
     c.header(header, value);
   }
-  return jsonAfterNormalize<typeof searchUsersV2Route>(c, payload, httpStatus);
+  return jsonAfterNormalize<typeof profileSearchV2Route>(c, payload, httpStatus);
 };
 
 export const trendsAPIRequest: RouteHandler<typeof trendsV2Route> = async c => {

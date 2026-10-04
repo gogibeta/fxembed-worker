@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Elon Musk (@elonmusk)</title>
+    <link>https://nitter.kareem.one/elonmusk</link>
+    <item>
+      <title>just setting up my twttr</title>
+      <link>https://nitter.kareem.one/elonmusk/status/20#m</link>
+      <guid>https://nitter.kareem.one/elonmusk/status/20#m</guid>
+      <pubDate>Sat, 03 Oct 2026 14:00:01 GMT</pubDate>
+      <dc:creator>@elonmusk</dc:creator>
+      <description>&lt;p&gt;just setting up my twttr&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Second fixture post</title>
+      <link>https://nitter.kareem.one/elonmusk/status/1841206275088290279#m</link>
+      <guid>https://nitter.kareem.one/elonmusk/status/1841206275088290279#m</guid>
+      <pubDate>Fri, 02 Oct 2026 09:12:44 GMT</pubDate>
+      <dc:creator>@elonmusk</dc:creator>
+      <description>&lt;p&gt;Second fixture post&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>

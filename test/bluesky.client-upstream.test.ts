@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+﻿import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
   setBlueskyProviderEnv,
   setBlueskyProxyRuntime
@@ -23,7 +23,8 @@ vi.mock('@fxembed/atmosphere/providers/bluesky/session', () => sessionMocks);
 import {
   fetchActorProfile,
   fetchPostThread,
-  fetchPostThreadResult
+  fetchPostThreadResult,
+  fetchSearchPosts
 } from '@fxembed/atmosphere/providers/bluesky/client';
 
 beforeEach(() => {
@@ -261,4 +262,66 @@ test('fetchActorProfile preserves public outage when proxy returns NotFound', as
     expect(result.status).toBe(503);
     expect(result.body).toContain('overloaded');
   }
+});
+
+test('fetchSearchPosts retries on the alternate AppView when the primary 403s', async () => {
+  const calls: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo) => {
+    const url = typeof input === 'string' ? input : input.url;
+    calls.push(url);
+    if (url.includes('public.api.bsky.app')) {
+      return new Response('<html>403 block page</html>', { status: 403 });
+    }
+    if (url.includes('https://api.bsky.app')) {
+      return new Response(
+        JSON.stringify({ posts: [{ uri: 'at://did:plc:x/app.bsky.feed.post/r' }] }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+
+  const first = await fetchSearchPosts({ q: 'openai', sort: 'latest', limit: 5 });
+
+  expect(first.ok).toBe(true);
+  expect(calls).toHaveLength(2);
+  expect(calls[0]).toContain('public.api.bsky.app');
+  expect(calls[1]).toContain('https://api.bsky.app');
+
+  const second = await fetchSearchPosts({ q: 'more', sort: 'top', limit: 5 });
+
+  expect(second.ok).toBe(true);
+  expect(calls.filter(u => u.includes('public.api.bsky.app'))).toHaveLength(1);
+  expect(calls.filter(u => u.includes('https://api.bsky.app'))).toHaveLength(2);
+});
+
+test('fetchSearchPosts surfaces a definitive alternate error over the edge 403 block', async () => {
+  const calls: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo) => {
+    const url = typeof input === 'string' ? input : input.url;
+    calls.push(url);
+    if (url.includes('public.api.bsky.app')) {
+      return new Response('<html>403 block page</html>', { status: 403 });
+    }
+    if (url.includes('https://api.bsky.app')) {
+      return new Response(JSON.stringify({ error: 'BadRequest', message: 'bad query' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+
+  const result = await fetchActorProfile('did:plc:test');
+
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.status).toBe(400);
+    expect(result.body).toContain('bad query');
+  }
+  expect(calls[0]).toContain('public.api.bsky.app');
+  expect(calls[1]).toContain('https://api.bsky.app');
 });

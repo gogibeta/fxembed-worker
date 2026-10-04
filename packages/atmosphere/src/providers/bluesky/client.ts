@@ -103,6 +103,18 @@ function isFallbackEligible(status: number, body: string, aborted?: boolean): bo
   return false;
 }
 
+/** Alternate AppView eligibility: the primary's own fallback rules plus the edge 403 block. */
+function isAlternateEligible(status: number, body: string, aborted?: boolean): boolean {
+  return status === 403 || isFallbackEligible(status, body, aborted);
+}
+
+/**
+ * XRPC paths the primary AppView answered 403 on. Best-effort: Cloudflare isolates are short-lived
+ * (tail reports `executionModel: stateless`), so the memo mostly survives a burst of requests that
+ * lands in a warm isolate - the fallback path below is what actually fixes any single call.
+ */
+const primaryBlockedPaths = new Set<string>();
+
 async function executeBlueskyXrpc<T>(
   path: string,
   params: BlueskyXrpcParams,
@@ -113,22 +125,67 @@ async function executeBlueskyXrpc<T>(
   const credentialKey = opts?.credentialKey;
   const px = getBlueskyProxyRuntime();
   const publicBase = getBlueskyProviderEnv().apiRoot;
+  const alternateBase = (getBlueskyProviderEnv().alternateApiRoot ?? '').trim();
+  const canTryAlternate =
+    alternateBase.length > 0 && trimBaseUrl(alternateBase) !== trimBaseUrl(publicBase);
   const publicTimeoutMs = BLUESKY_UPSTREAM_TIMEOUT_MS;
   const proxyTimeoutMs = BLUESKY_PROXY_UPSTREAM_TIMEOUT_MS;
 
-  const first = await fetchXrpcOnce<T>(publicBase, path, params, { timeoutMs: publicTimeoutMs });
-  const publicUpstreamTimedOut = !first.ok && Boolean(first.aborted);
-  if (first.ok) {
-    return { ok: true, data: first.data };
+  let triedPrimary = false;
+  let triedAlternate = false;
+  let first: XrpcAttemptOk<T> | XrpcAttemptFail;
+
+  if (canTryAlternate && primaryBlockedPaths.has(path)) {
+    triedAlternate = true;
+    first = await fetchXrpcOnce<T>(alternateBase, path, params, { timeoutMs: publicTimeoutMs });
+    if (first.ok) {
+      return { ok: true, data: first.data };
+    }
+  } else {
+    triedPrimary = true;
+    first = await fetchXrpcOnce<T>(publicBase, path, params, { timeoutMs: publicTimeoutMs });
+    if (first.ok) {
+      return { ok: true, data: first.data };
+    }
+    if (isNotFoundError(first.status, first.body)) {
+      return { ok: false, status: first.status, body: first.body };
+    }
+    if (first.status === 403 && canTryAlternate) {
+      console.log(
+        `Bluesky XRPC primary AppView (${trimBaseUrl(publicBase)}) 403'd ${path}; using alternate AppView`
+      );
+      primaryBlockedPaths.add(path);
+    }
   }
-  if (isNotFoundError(first.status, first.body)) {
-    return { ok: false, status: first.status, body: first.body };
-  }
+
+  const publicUpstreamTimedOut = triedPrimary && Boolean(first.aborted);
   if (publicUpstreamTimedOut) {
     console.log(
       `Bluesky XRPC public AppView (${trimBaseUrl(publicBase)}) timed out after ${publicTimeoutMs}ms`
     );
   }
+
+  if (
+    canTryAlternate &&
+    !triedAlternate &&
+    isAlternateEligible(first.status, first.body, first.aborted)
+  ) {
+    const alt = await fetchXrpcOnce<T>(alternateBase, path, params, {
+      timeoutMs: publicTimeoutMs
+    });
+    if (alt.ok) {
+      console.log(
+        `Bluesky XRPC recovered via alternate AppView (${trimBaseUrl(alternateBase)}) for ${path}`
+      );
+      return { ok: true, data: alt.data };
+    }
+    // A definitive alternate error (400/404/...) outranks the edge block we just escaped; a
+    // transient alternate failure leaves the primary's error as the more representative one.
+    if (!isFallbackEligible(alt.status, alt.body, alt.aborted)) {
+      first = alt;
+    }
+  }
+
   if (
     !isFallbackEligible(first.status, first.body, first.aborted) ||
     !credentialKey?.trim() ||

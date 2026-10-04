@@ -19,6 +19,8 @@ export type TwitterProviderEnv = {
   gifTranscodeDomainList: string[];
   oldEmbedDomains: string[];
   blueskyApiHostList: string[];
+  /** Search-relay RSS origin backing X keyword search (see rssSearch.ts). */
+  searchRelayRoot: string;
 };
 
 const defaultEnv: TwitterProviderEnv = {
@@ -35,7 +37,8 @@ const defaultEnv: TwitterProviderEnv = {
   videoBase: 'https://video.twimg.com',
   gifTranscodeDomainList: [],
   oldEmbedDomains: [],
-  blueskyApiHostList: []
+  blueskyApiHostList: [],
+  searchRelayRoot: 'https://nitter.kareem.one'
 };
 
 let env: TwitterProviderEnv = { ...defaultEnv };

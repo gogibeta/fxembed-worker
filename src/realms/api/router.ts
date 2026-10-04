@@ -14,8 +14,8 @@ import {
   profileFollowersAPIRequest,
   profileFollowingAPIRequest,
   profileStatusesAPIRequest,
+  profileSearchAPIRequest,
   searchAPIRequest,
-  searchUsersAPIRequest,
   statusAPIRequest,
   statusRepostsAPIRequest,
   statusQuotesAPIRequest,
@@ -35,7 +35,7 @@ import {
   profileFollowingV2Route,
   profileStatusesV2Route,
   profileV2Route,
-  searchUsersV2Route,
+  profileSearchV2Route,
   searchV2Route,
   statusV2Route,
   statusRepostsV2Route,
@@ -78,8 +78,8 @@ api.openapi(profileMediaV2Route, profileMediaAPIRequest);
 api.openapi(profileFollowersV2Route, profileFollowersAPIRequest);
 api.openapi(profileFollowingV2Route, profileFollowingAPIRequest);
 api.openapi(profileV2Route, profileAPIRequest);
+api.openapi(profileSearchV2Route, profileSearchAPIRequest);
 api.openapi(searchV2Route, searchAPIRequest);
-api.openapi(searchUsersV2Route, searchUsersAPIRequest);
 api.openapi(typeaheadV2Route, typeaheadAPIRequest);
 api.openapi(trendsV2Route, trendsAPIRequest);
 

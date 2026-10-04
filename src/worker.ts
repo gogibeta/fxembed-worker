@@ -71,7 +71,8 @@ setTwitterProviderEnv({
   videoBase: Constants.TWITTER_VIDEO_BASE,
   gifTranscodeDomainList: Constants.GIF_TRANSCODE_DOMAIN_LIST,
   oldEmbedDomains: Constants.OLD_EMBED_DOMAINS,
-  blueskyApiHostList: Constants.BLUESKY_API_HOST_LIST
+  blueskyApiHostList: Constants.BLUESKY_API_HOST_LIST,
+  searchRelayRoot: Constants.X_SEARCH_RELAY_ROOT
 });
 
 setTwitterProxyRuntime({
@@ -89,6 +90,9 @@ import { atmosphere } from './realms/atmosphere/router';
 import { getBranding } from './helpers/branding';
 import { tiktok } from './realms/tiktok/router';
 import { instagram } from './realms/instagram/router';
+import { ai } from './realms/ai/router';
+import { llmsTxt } from './realms/ai/llms';
+import type { Context } from 'hono';
 
 const noCache = 'max-age=0, no-cache, no-store, must-revalidate';
 const embeddingClientRegex =
@@ -266,10 +270,23 @@ app.get('/', c => {
       /api/...         FxTwitter API
       /blueskyapi/...  FxBluesky API
       /atmosphere/...  Atmosphere API (multi-provider)
+      /ai/...          AI Markdown API (LLM-optimized twins of the JSON APIs)
+
+    Full machine-readable guide: /llms.txt (also /llm.txt and /ai/llms.txt)
     `,
     200
   );
 });
+
+const serveLlmsTxt = (c: Context) => {
+  c.header('cache-control', 'public, max-age=3600');
+  c.header('content-type', 'text/plain; charset=utf-8');
+  c.header('access-control-allow-origin', '*');
+  return c.text(llmsTxt(new URL(c.req.url).origin));
+};
+
+app.get('/llms.txt', serveLlmsTxt);
+app.get('/llm.txt', serveLlmsTxt);
 
 app.route(`/api`, api);
 app.route(`/blueskyapi`, blueskyApi);
@@ -278,6 +295,7 @@ app.route(`/twitter`, twitter);
 app.route(`/bluesky`, bluesky);
 app.route(`/tiktok`, tiktok);
 app.route(`/instagram`, instagram);
+app.route(`/ai`, ai);
 
 app.all('/error', async c => {
   c.header('cache-control', noCache);

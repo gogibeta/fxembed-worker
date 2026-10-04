@@ -578,19 +578,23 @@ export const searchV2Route = createRoute({
   request: {
     query: z.object({
       q: twitterSearchQueryString({
-        description: `Search query (non-empty, max ${TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH} characters)`,
+        description: `Search query (non-empty, max ${TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH} characters). All X operators pass through (from:, filter:, lang:, since:, min_faves:, ...). Served via the search relay with per-post hydration.`,
         example: 'puppies',
         maxLength: TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH
       }),
       feed: z.enum(['latest', 'top', 'media']).optional().openapi({
-        description: 'Search tab (default latest)',
+        description:
+          'Search tab (default latest). Top behaves like latest; media appends filter:media.',
         default: 'latest'
       }),
       count: z.coerce.number().int().min(1).max(100).optional().openapi({
-        description: 'Page size (default 30)',
+        description: 'Page size (default 30, relay window serves up to ~20 per call)',
         default: 30
       }),
-      cursor: z.string().optional(),
+      cursor: z.string().optional().openapi({
+        description:
+          'Opaque relay cursor from a previous response (walks since:/until: time windows)'
+      }),
       ...langQuery.shape
     })
   },
@@ -604,7 +608,7 @@ export const searchV2Route = createRoute({
       content: { 'application/json': { schema: ApiQueryErrorSchema } }
     },
     404: {
-      description: 'No results or timeline unavailable',
+      description: 'No results or relay unavailable',
       content: { 'application/json': { schema: APISearchResultsSchema } }
     },
     500: {
@@ -614,43 +618,56 @@ export const searchV2Route = createRoute({
   }
 });
 
-export const searchUsersV2Route = createRoute({
+export const profileSearchV2Route = createRoute({
   method: 'get',
-  path: '/2/search/users',
-  summary: 'Search people',
+  path: '/2/profile/{handle}/search',
+  summary: 'Search within a user timeline',
   description:
-    'Search accounts using the People tab of X search. Same envelope as `/2/profile/{handle}/followers` (`code`, `results`, `cursor`). Pass `cursor.bottom` back as `cursor` for the next page. `/2/typeahead` is the lighter, unpaginated autocomplete over the same corpus.',
+    'Keyword search scoped to one account via the search relay (`/{handle}/search/rss`, paged through since:/until: windows). Ours-only route: no production equivalent. Same envelope as `/2/search`. People search is not offered.',
   request: {
+    params: z.object({
+      handle: z.string().openapi({
+        description: 'Username without @ (numeric `id:` values are not relayable)'
+      })
+    }),
     query: z.object({
       q: twitterSearchQueryString({
-        description: `Search query (non-empty, max ${TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH} characters)`,
-        example: 'jack',
+        description: `Search query (non-empty, max ${TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH} characters). All X operators pass through.`,
+        example: 'openai',
         maxLength: TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH
       }),
+      feed: z.enum(['latest', 'top', 'media']).optional().openapi({
+        description:
+          'Search tab (default latest). Top behaves like latest; media appends filter:media.',
+        default: 'latest'
+      }),
       count: z.coerce.number().int().min(1).max(100).optional().openapi({
-        description: 'Page size (default 30)',
+        description: 'Page size (default 30, relay window serves up to ~20 per call)',
         default: 30
       }),
-      cursor: z.string().optional(),
+      cursor: z.string().optional().openapi({
+        description:
+          'Opaque relay cursor from a previous response (walks since:/until: time windows)'
+      }),
       ...langQuery.shape
     })
   },
   responses: {
     200: {
-      description: 'Matching accounts',
-      content: { 'application/json': { schema: APIUserListResultsSchema } }
+      description: 'Matching posts',
+      content: { 'application/json': { schema: APISearchResultsSchema } }
     },
     400: {
       description: `Invalid \`q\` parameter (empty or longer than ${TWITTER_SEARCH_RAW_QUERY_MAX_LENGTH} characters)`,
       content: { 'application/json': { schema: ApiQueryErrorSchema } }
     },
     404: {
-      description: 'No results or timeline unavailable',
-      content: { 'application/json': { schema: APIUserListResultsSchema } }
+      description: 'No results or relay unavailable',
+      content: { 'application/json': { schema: APISearchResultsSchema } }
     },
     500: {
       description: 'Upstream or processing error',
-      content: { 'application/json': { schema: APIUserListResultsSchema } }
+      content: { 'application/json': { schema: APISearchResultsSchema } }
     }
   }
 });

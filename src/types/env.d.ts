@@ -26,6 +26,8 @@ declare namespace NodeJS {
     INSTAGRAM_ROOT?: string;
     /** Instagram private API origin used by the account proxy. */
     INSTAGRAM_API_ROOT?: string;
+    /** Search-relay RSS origin backing X keyword search (defaults to the public relay). */
+    X_SEARCH_RELAY_ROOT?: string;
     SENTRY_DSN?: string;
     RELEASE_NAME?: string;
     /** Inlined from credentials.enc.json at build (see esbuild.config.mjs). */

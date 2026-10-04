@@ -62,7 +62,8 @@ let envVariables = [
   'OLD_EMBED_DOMAINS',
   'TWITTER_ROOT',
   'INSTAGRAM_ROOT',
-  'INSTAGRAM_API_ROOT'
+  'INSTAGRAM_API_ROOT',
+  'X_SEARCH_RELAY_ROOT'
 ];
 
 // Inline process.env.* so Workers bundles stay static; Bun/Node read real process.env at runtime.

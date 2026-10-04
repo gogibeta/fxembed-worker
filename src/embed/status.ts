@@ -5,7 +5,12 @@ import icu from 'i18next-icu';
 import { Constants } from '../constants';
 import { handleQuote } from '../helpers/quote';
 import { isTombstone, withLocalizedTombstoneMessage } from '../helpers/tombstone';
-import { formatImageUrl, sanitizeText, truncateWithEllipsis } from '../helpers/utils';
+import {
+  formatImageUrl,
+  formatReplyingToAuthorLabel,
+  sanitizeText,
+  truncateWithEllipsis
+} from '../helpers/utils';
 import { proxyTwitterPostPhotoUrl, shouldProxyTelegramPbsPhotos } from '../helpers/pbsProxy';
 import { Strings } from '../strings';
 import { getSocialProof } from '../helpers/socialproof';
@@ -30,6 +35,26 @@ import { constructTikTokVideo } from '@fxembed/atmosphere/providers/tiktok/conve
 import { constructInstagramPost } from '@fxembed/atmosphere/providers/instagram/post';
 import { InputFlags } from '../types/types';
 import { formatRuntime } from '../helpers/runtime';
+
+/**
+ * Telegram's link preview plays videos inside an embed container. Instagram
+ * files fail there, so Telegram user agents get the video file directly.
+ * Image posts, other networks, and other clients stay on the embed pipeline.
+ * Explicit API, text-only, gallery, and instant-view requests are unchanged.
+ */
+const useDirectMediaForTelegramInstagramVideo = (
+  isTelegram: boolean,
+  provider: DataProvider,
+  flags: InputFlags,
+  hasVideo: boolean
+): boolean =>
+  isTelegram &&
+  provider === DataProvider.Instagram &&
+  hasVideo &&
+  !flags.api &&
+  !flags.textOnly &&
+  !flags.gallery &&
+  !flags.forceInstantView;
 
 /**
  * Check if the tweet text is essentially just an article URL with no meaningful additional content.
@@ -240,6 +265,13 @@ export const handleStatus = async (
       console.log(api);
       return returnError(c, Strings.ERROR_API_FAIL);
   }
+  if (
+    provider === DataProvider.Bluesky &&
+    mediaNumber &&
+    !status.media?.photos?.[mediaNumber - 1]
+  ) {
+    return c.text('Photo not found', 404);
+  }
   /* Should sensitive statuses be allowed Instant View? */
   let useIV = false;
 
@@ -342,6 +374,24 @@ export const handleStatus = async (
       }
       console.log('redirectUrl', redirectUrl);
       return c.redirect(redirectUrl, 302);
+    }
+  }
+
+  /* Temporary: Instagram videos + Telegram skip the embed container. */
+  if (
+    useDirectMediaForTelegramInstagramVideo(
+      isTelegram,
+      provider,
+      flags,
+      (status.media?.videos?.length ?? 0) > 0
+    )
+  ) {
+    const videos = status.media?.videos ?? [];
+    const indexed = mediaNumber ? status.media?.all?.[mediaNumber - 1] : undefined;
+    const selected = indexed?.type === 'video' ? indexed : videos[0];
+    if (selected?.url) {
+      console.log('Telegram Instagram video direct media', selected.url);
+      return c.redirect(selected.url, 302);
     }
   }
 
@@ -649,7 +699,7 @@ export const handleStatus = async (
   }
 
   if (!isDiscord && status.replying_to) {
-    newText = `↩ ${status.replying_to.display_name ?? ''} (@${status.replying_to.screen_name})<br>${newText}`;
+    newText = `↩ ${formatReplyingToAuthorLabel(status.replying_to)}<br>${newText}`;
   }
 
   const avatar = status.author.avatar_url;
